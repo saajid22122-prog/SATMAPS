@@ -177,14 +177,9 @@ def get_satellite_tile(lat: float, lon: float, delta: float = 0.0035, size: int 
         img_bytes = r.content
 
         if mode in ("t0", "before", "baseline", "s2"):
-            # Smooth continuous bicubic spatial resampling & spectral reflectance adjustment
+            # Real Natural True-Color Baseline Satellite Pass
             img = Image.open(BytesIO(img_bytes)).convert("RGB")
-            r_chan, g_chan, b_chan = img.split()
-            nir_r = ImageEnhance.Contrast(g_chan).enhance(1.15)
-            nir_g = ImageEnhance.Contrast(r_chan).enhance(0.85)
-            nir_b = ImageEnhance.Contrast(b_chan).enhance(0.75)
-            t0_img = Image.merge("RGB", (nir_r, nir_g, nir_b))
-            t0_img = ImageEnhance.Sharpness(t0_img).enhance(1.4)
+            t0_img = ImageEnhance.Contrast(img).enhance(1.05)
             out = BytesIO()
             t0_img.save(out, format="PNG")
             return Response(content=out.getvalue(), media_type="image/png")
