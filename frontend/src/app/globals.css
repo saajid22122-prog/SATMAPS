@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+:root {
+  --lavender-light: #DDC4DD;
+  --lavender-soft: #DCCFEC;
+  --lavender-accent: #A997DF;
+  --lavender-deep: #7058B6;
+  
+  --bg-dark: #0D0A18;
+  --bg-card: #161226;
+  --bg-card-hover: #1F1A34;
+  --border-subtle: rgba(169, 151, 223, 0.18);
+  --border-hover: rgba(169, 151, 223, 0.45);
+  
+  --text-primary: #F3F0FA;
+  --text-secondary: #C3B8DF;
+  --text-muted: #8E82B4;
+
+  /* 4 Map Triage Status Colors (Preserved Bright Accents) */
+  --status-confirmed: #22C55E;
+  --status-confounded: #A855F7;
+  --status-disagreement: #F97316;
+  --status-no-evidence: #64748B;
+}
+
+body {
+  background-color: var(--bg-dark);
+  color: var(--text-primary);
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+  overflow-x: hidden;
+}
+
+/* Force dark popups for all native HTML select dropdowns */
+select, option, optgroup {
+  color-scheme: dark;
+  background-color: #161226 !important;
+  color: #F3F0FA !important;
+}
+
+select option {
+  background-color: #161226 !important;
+  color: #F3F0FA !important;
+  padding: 6px 10px;
+}
+
+select option:checked,
+select option:hover,
+select option:focus {
+  background-color: #7058B6 !important;
+  color: #FFFFFF !important;
+}
+
+/* Glassmorphism Utilities */
+.glass-panel {
+  background: rgba(22, 18, 38, 0.75);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-subtle);
+}
+
+.glass-card {
+  background: linear-gradient(135deg, rgba(28, 23, 48, 0.8) 0%, rgba(20, 16, 35, 0.9) 100%);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-subtle);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.glass-card:hover {
+  border-color: var(--border-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 30px -10px rgba(169, 151, 223, 0.2);
+}
+
+.lavender-gradient-text {
+  background: linear-gradient(135deg, #F3F0FA 0%, #DCCFEC 40%, #A997DF 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.lavender-button {
+  background: linear-gradient(135deg, #7058B6 0%, #5B44A0 100%);
+  color: #FFFFFF;
+  border: 1px solid rgba(169, 151, 223, 0.4);
+  box-shadow: 0 4px 14px 0 rgba(112, 88, 182, 0.35);
+  transition: all 0.2s ease;
+}
+
+.lavender-button:hover {
+  background: linear-gradient(135deg, #8168C9 0%, #6A52B5 100%);
+  box-shadow: 0 6px 20px 0 rgba(112, 88, 182, 0.5);
+  transform: translateY(-1px);
+}
+
+/* Custom Scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-dark);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(169, 151, 223, 0.3);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(169, 151, 223, 0.6);
+}

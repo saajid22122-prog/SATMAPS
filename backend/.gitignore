@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+watershed.db
+clip_embeddings.npz
+linear_probe.pkl
+precompute_log.txt
+.env
+.env.*
+imd_grid_cache/

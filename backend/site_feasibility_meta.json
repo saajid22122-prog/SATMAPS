@@ -1,0 +1,1 @@
+{"trained_n": 348, "cross_val_accuracy": 0.655072463768116, "n_splits": 5, "note": "Trained on the live abc dataset; target is Asset.triage_status == 'confirmed' (real significant RESTREND trend), not a fabricated label. Sample size is currently exploratory."}

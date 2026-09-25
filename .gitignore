@@ -1,0 +1,43 @@
+# Large Raw PDF Batches (1.36 GB - Do Not Push to GitHub)
+abc/APSAC_All_Batches/
+
+# Local Environment Variables & Secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Python Caches & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+
+# Data Caches & Large DB Files
+backend/imd_grid_cache/
+backend/restrend_cache.json
+backend/restrend_cache_abc.json
+*.db
+*.sqlite
+*.sqlite3
+
+# Node.js & Frontend Build Outputs
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/dist/
+frontend/tsconfig.tsbuildinfo
+node_modules/
+
+# IDE & OS Garbage
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
