@@ -17,6 +17,20 @@ from database import Base, engine, get_db
 
 Base.metadata.create_all(bind=engine)
 
+# Auto-seed dataset on startup if DB is empty
+from database import SessionLocal
+import ingest_abc_dataset
+
+_db_init = SessionLocal()
+try:
+    if _db_init.query(models.Asset).count() == 0:
+        print("[INIT] Seeding assets database from source dataset...")
+        ingest_abc_dataset.ingest_abc()
+except Exception as _e:
+    print(f"[INIT WARNING] Database auto-seed error: {_e}")
+finally:
+    _db_init.close()
+
 app = FastAPI(title="Satmaps Geospatial Monitoring API")
 
 # --- Strict CORS: explicit origins only, never a wildcard ---
