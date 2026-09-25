@@ -21,6 +21,7 @@ env/
 backend/imd_grid_cache/
 backend/restrend_cache.json
 backend/restrend_cache_abc.json
+!backend/watershed.db
 *.db
 *.sqlite
 *.sqlite3
