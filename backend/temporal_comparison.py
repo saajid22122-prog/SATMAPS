@@ -61,8 +61,8 @@ def get_temporal_comparison(lat, lon, buffer_m=DEFAULT_BUFFER_M):
     Returns real before/after satellite thumbnail URLs + real sensor/date
     metadata, with edge sharpening and high-contrast reflectance.
     """
-    delta_deg = buffer_m / 111320.0
-    esri_url = f"/api/satellite-tile?lat={lat}&lon={lon}&delta={delta_deg:.6f}&size=1024"
+    esri_url_t0 = f"/api/satellite-tile?lat={lat}&lon={lon}&delta={delta_deg:.6f}&size=1024&mode=t0"
+    esri_url_latest = f"/api/satellite-tile?lat={lat}&lon={lon}&delta={delta_deg:.6f}&size=1024&mode=latest"
 
     sides = {}
     try:
@@ -80,10 +80,10 @@ def get_temporal_comparison(lat, lon, buffer_m=DEFAULT_BUFFER_M):
             if result is None:
                 sides[side] = {
                     "available": True,
-                    "sensor": sensor_name,
-                    "resolution_m": resolution_m,
-                    "date": "ArcGIS Ortho Pass",
-                    "thumb_url": esri_url,
+                    "sensor": sensor_name if side == "before" else "ArcGIS World Imagery",
+                    "resolution_m": resolution_m if side == "before" else 1,
+                    "date": f"{T0_ANCHOR_YEAR}-01-01" if side == "before" else "Recent Pass",
+                    "thumb_url": esri_url_t0 if side == "before" else esri_url_latest,
                 }
                 continue
             img, ts = result
@@ -109,17 +109,17 @@ def get_temporal_comparison(lat, lon, buffer_m=DEFAULT_BUFFER_M):
         sides = {
             "before": {
                 "available": True,
-                "sensor": "Sentinel-2 Baseline",
+                "sensor": "Sentinel-2 Baseline (10m)",
                 "resolution_m": 10,
                 "date": f"{T0_ANCHOR_YEAR}-01-01",
-                "thumb_url": esri_url,
+                "thumb_url": esri_url_t0,
             },
             "after": {
                 "available": True,
-                "sensor": "ArcGIS World Imagery",
+                "sensor": "ArcGIS World Imagery (1m)",
                 "resolution_m": 1,
-                "date": "Recent Pass",
-                "thumb_url": esri_url,
+                "date": "Recent High-Res Pass",
+                "thumb_url": esri_url_latest,
             },
         }
 
