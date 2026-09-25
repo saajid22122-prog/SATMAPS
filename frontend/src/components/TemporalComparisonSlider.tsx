@@ -212,15 +212,24 @@ export default function TemporalComparisonSlider({
 
   // Determine active Left (Before) and Right (After) image URLs with fallbacks
   let leftSrc = resolveUrl(leftFallback ?? before?.thumb_url);
-  let leftLabel = `T0 · ${before?.sensor || "Sentinel-2"} (${before?.resolution_m || 10}m · ${before?.date || "Baseline"})`;
-  let rightSrc = resolveUrl(rightFallback ?? after?.thumb_url);
-  let rightLabel = `Latest · ${after?.sensor || "Sentinel-2"} (${after?.resolution_m || 10}m · ${after?.date || "Recent"})`;
+  let leftLabel = `T0 · ${before?.sensor || "Sentinel-2 Baseline"} (${before?.resolution_m || 10}m · ${before?.date || "2017-01-01"})`;
+  
+  let rightSrc = resolveUrl(rightFallback ?? after?.thumb_url ?? directHighResUrl);
+  let rightLabel = `Latest · ${after?.sensor || "ArcGIS High-Res"} (${after?.resolution_m || 1}m · ${after?.date || "Recent"})`;
 
   if (sliderMode === "satellite_vs_highres") {
     leftSrc = resolveUrl(leftFallback ?? before?.thumb_url);
     leftLabel = `T0 Baseline · ${before?.sensor || "Sentinel-2"} (${before?.resolution_m || 10}m)`;
     rightSrc = resolveUrl(rightFallback ?? directHighResUrl);
     rightLabel = "Current · High-Res Ortho (~1m Crystal Clear)";
+  }
+
+  // Guarantee mode=t0 for Left (Before baseline) and mode=latest for Right (After current)
+  if (leftSrc && !leftSrc.includes("mode=")) {
+    leftSrc += (leftSrc.includes("?") ? "&" : "?") + "mode=t0";
+  }
+  if (rightSrc && !rightSrc.includes("mode=")) {
+    rightSrc += (rightSrc.includes("?") ? "&" : "?") + "mode=latest";
   }
 
   const captionText = `${before?.sensor || "Sentinel-2"}, ${before?.resolution_m || 10}m · ${before?.date || "T0"}  →  ${
