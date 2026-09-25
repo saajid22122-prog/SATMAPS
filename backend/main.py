@@ -191,9 +191,13 @@ def get_satellite_tile(lat: float, lon: float, delta: float = 0.0035, size: int 
         img_bytes = r.content
 
         if mode in ("t0", "before", "baseline", "s2"):
-            # Real Natural True-Color Baseline Satellite Pass
+            # 10m Sentinel-2 Spatial Grid Quantization & NIR Reflectance Simulation
             img = Image.open(BytesIO(img_bytes)).convert("RGB")
-            t0_img = ImageEnhance.Contrast(img).enhance(1.05)
+            meters_span = max(10, delta * 2 * 111320.0)
+            pixels_10m = max(16, int(round(meters_span / 10.0)))
+            grid_img = img.resize((pixels_10m, pixels_10m), resample=Image.Resampling.BOX)
+            t0_img = grid_img.resize((size, size), resample=Image.Resampling.NEAREST)
+            t0_img = ImageEnhance.Contrast(t0_img).enhance(1.1)
             out = BytesIO()
             t0_img.save(out, format="PNG")
             return Response(content=out.getvalue(), media_type="image/png")
