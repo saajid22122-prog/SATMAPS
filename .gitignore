@@ -41,3 +41,14 @@ Thumbs.db
 *.swo
 .vscode/
 .idea/
+
+# Internal Spec & Prompt Docs
+SPEC_MASTER_PROMPT.md
+BUILD_CHECKLIST.md
+PROJECT_STATUS.md
+*.pdf
+abc/*.csv
+abc/*.code-workspace
+abc/visual_spotcheck_log.md
+abc/script.py
+
