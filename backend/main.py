@@ -33,14 +33,12 @@ finally:
 
 app = FastAPI(title="Satmaps Geospatial Monitoring API")
 
-# --- Strict CORS: explicit origins only, never a wildcard ---
-_default_origins = "http://localhost:3000,http://127.0.0.1:3000"
-allowed_origins = [o.strip() for o in os.environ.get("ALLOWED_ORIGINS", _default_origins).split(",") if o.strip()]
-
+# --- Flexible CORS: allow Vercel frontends, localhost, and preview domains ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True,
+    allow_origin_regex=r"https://.*\.vercel\.app|http://localhost:.*|http://127\.0\.0\.1:.*",
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
