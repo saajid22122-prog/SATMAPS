@@ -183,7 +183,8 @@ def get_satellite_tile(lat: float, lon: float, delta: float = 0.0035, size: int 
             if r_s2.status_code == 200 and len(r_s2.content) > 1000:
                 img_s2 = Image.open(BytesIO(r_s2.content))
                 arr_s2 = np.array(img_s2)
-                if arr_s2.mean() > 10:
+                # Reject cloudy white wash (mean > 170) or low contrast tiles (std < 28)
+                if 20 < arr_s2.mean() < 170 and arr_s2.std() > 28:
                     return Response(content=r_s2.content, media_type="image/jpeg")
         except Exception as s2_err:
             print(f"Sentinel-2 ImageServer notice: {s2_err}")
