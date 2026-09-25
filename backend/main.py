@@ -517,7 +517,7 @@ def get_evidence_packet(asset_id: int, db: Session = Depends(get_db)):
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    pdf_bytes = district_report.build_project_report(asset.project_id, [asset], db)
+    pdf_bytes = district_report.build_single_asset_evidence_pdf(asset, db)
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
