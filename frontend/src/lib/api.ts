@@ -13,6 +13,16 @@ import { supabase } from "./supabase";
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
 export const MEDIA_BASE = `${API_BASE}/media`;
 
+// Client-side in-memory API response cache & request deduplication
+const CLIENT_CACHE = new Map<string, { time: number; data: unknown }>();
+const INFLIGHT_PROMISES = new Map<string, Promise<unknown>>();
+const CACHE_TTL_MS = 60000; // 60s cache for GET requests
+
+export function clearClientApiCache() {
+  CLIENT_CACHE.clear();
+  INFLIGHT_PROMISES.clear();
+}
+
 // Real Supabase session token, attached to every request when a real
 // session exists - never a fabricated/placeholder auth header.
 async function authHeaders(): Promise<Record<string, string>> {
@@ -27,17 +37,50 @@ async function authHeaders(): Promise<Record<string, string>> {
   return { Authorization: `Bearer ${token}` };
 }
 
-async function json<T>(path: string, init?: RequestInit): Promise<T> {
-  const auth = await authHeaders();
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...auth, ...(init?.headers || {}) },
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`${res.status} ${res.statusText}: ${body}`);
+async function json<T>(path: string, init?: RequestInit, cache = true): Promise<T> {
+  const method = (init?.method || "GET").toUpperCase();
+  const isGet = method === "GET";
+
+  if (isGet && cache) {
+    const cached = CLIENT_CACHE.get(path);
+    if (cached && Date.now() - cached.time < CACHE_TTL_MS) {
+      return cached.data as T;
+    }
+    if (INFLIGHT_PROMISES.has(path)) {
+      return INFLIGHT_PROMISES.get(path) as Promise<T>;
+    }
   }
-  return res.json();
+
+  const promise = (async () => {
+    try {
+      const auth = await authHeaders();
+      const res = await fetch(`${API_BASE}${path}`, {
+        ...init,
+        headers: { "Content-Type": "application/json", ...auth, ...(init?.headers || {}) },
+      });
+      if (!res.ok) {
+        const body = await res.text().catch(() => "");
+        throw new Error(`${res.status} ${res.statusText}: ${body}`);
+      }
+      const data = await res.json();
+      if (isGet && cache) {
+        CLIENT_CACHE.set(path, { time: Date.now(), data });
+      } else if (!isGet) {
+        clearClientApiCache();
+      }
+      return data as T;
+    } finally {
+      if (isGet && cache) {
+        INFLIGHT_PROMISES.delete(path);
+      }
+    }
+  })();
+
+  if (isGet && cache) {
+    INFLIGHT_PROMISES.set(path, promise);
+  }
+
+  return promise;
 }
 
 export function mediaUrl(relativePath: string | null | undefined): string | null {
@@ -51,6 +94,7 @@ export function mediaUrl(relativePath: string | null | undefined): string | null
 }
 
 export const api = {
+  clearCache: clearClientApiCache,
   listAssets: (params?: { triage_status?: string; state_code?: string }) => {
     const q = new URLSearchParams(params as Record<string, string>).toString();
     return json<AssetSummary[]>(`/api/assets${q ? `?${q}` : ""}`);
@@ -99,6 +143,7 @@ export const api = {
       body: JSON.stringify({ latitude, longitude }),
     }),
   uploadPhoto: async (file: File) => {
+    clearClientApiCache();
     const form = new FormData();
     form.append("file", file);
     const auth = await authHeaders();
@@ -115,4 +160,5 @@ export const api = {
   getLandUseMap: (district?: string) =>
     json<import("./types").LandUseMapData>(`/api/land-use-map${district ? `?district=${encodeURIComponent(district)}` : ""}`),
 };
+
 

@@ -1,8 +1,12 @@
 import os
+import time
+import hashlib
+from typing import Any
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
@@ -33,6 +37,9 @@ finally:
 
 app = FastAPI(title="Satmaps Geospatial Monitoring API - v2.1")
 
+# Enable automatic GZip response compression for fast JSON data transfer
+app.add_middleware(GZipMiddleware, minimum_size=500)
+
 # --- Flexible CORS: allow Vercel frontends, localhost, and preview domains ---
 app.add_middleware(
     CORSMiddleware,
@@ -43,9 +50,36 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Static media mount (ground photos + satellite tiles) ---
+# --- High-Performance Static Media Mount with HTTP Cache-Control ---
+class CachedStaticFiles(StaticFiles):
+    def file_response(self, *args, **kwargs):
+        resp = super().file_response(*args, **kwargs)
+        resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return resp
+
 REPO_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
-app.mount("/media", StaticFiles(directory=REPO_ROOT), name="media")
+app.mount("/media", CachedStaticFiles(directory=REPO_ROOT), name="media")
+
+# --- In-Memory Fast API Response Cache ---
+_API_CACHE: dict[str, dict[str, Any]] = {}
+_CACHE_TTL_SEC = 600  # 10 minutes
+
+def get_cached_response(key: str) -> Any | None:
+    item = _API_CACHE.get(key)
+    if item and (time.time() - item["time"] < _CACHE_TTL_SEC):
+        return item["data"]
+    return None
+
+def set_cached_response(key: str, data: Any):
+    _API_CACHE[key] = {"time": time.time(), "data": data}
+
+def clear_api_cache():
+    _API_CACHE.clear()
+
+# --- Disk Cache for Remote Satellite Tiles ---
+TILE_CACHE_DIR = os.path.join(os.path.dirname(__file__), "cache", "tiles")
+os.makedirs(TILE_CACHE_DIR, exist_ok=True)
+
 
 
 @app.get("/")
@@ -70,25 +104,43 @@ def list_assets(
     state_code: str | None = None,
     db: Session = Depends(get_db),
 ):
+    cache_key = f"list_assets_{triage_status or 'all'}_{state_code or 'all'}"
+    cached = get_cached_response(cache_key)
+    if cached is not None:
+        return cached
+
     q = db.query(models.Asset)
     if triage_status:
         q = q.filter(models.Asset.triage_status == triage_status)
     if state_code:
         q = q.filter(models.Asset.state_code == state_code)
-    return q.all()
+    res = q.all()
+    set_cached_response(cache_key, res)
+    return res
 
 
 @app.get("/api/assets/{asset_id}", response_model=schemas.AssetDetailOut)
 def get_asset(asset_id: int, db: Session = Depends(get_db)):
+    cache_key = f"get_asset_{asset_id}"
+    cached = get_cached_response(cache_key)
+    if cached is not None:
+        return cached
+
     asset = db.query(models.Asset).filter(models.Asset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
+    set_cached_response(cache_key, asset)
     return asset
 
 
 # ---------------------------------------------------------------- Layer 0
 @app.get("/api/assets/{asset_id}/restrend", response_model=schemas.RestrendSeriesOut)
 def get_restrend(asset_id: int, db: Session = Depends(get_db)):
+    cache_key = f"restrend_{asset_id}"
+    cached = get_cached_response(cache_key)
+    if cached is not None:
+        return cached
+
     asset = db.query(models.Asset).filter(models.Asset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
@@ -98,13 +150,15 @@ def get_restrend(asset_id: int, db: Session = Depends(get_db)):
         .order_by(models.RestrendPoint.year, models.RestrendPoint.month)
         .all()
     )
-    return schemas.RestrendSeriesOut(
+    res = schemas.RestrendSeriesOut(
         asset_id=asset_id,
         restrend_slope=asset.restrend_slope,
         restrend_pvalue=asset.restrend_pvalue,
         rainfall_anomaly=asset.restrend_rainfall_anomaly,
         points=points,
     )
+    set_cached_response(cache_key, res)
+    return res
 
 
 # ---------------------------------------------------------------- Layer 3b
@@ -113,12 +167,19 @@ def get_cross_validation(asset_id: int, db: Session = Depends(get_db)):
     """Real, inspectable routing audit trail (Section 3's 'not a black box'
     requirement) - the exact real values routing.py used to decide, not
     re-derived after the fact."""
-    return (
+    cache_key = f"cross_val_{asset_id}"
+    cached = get_cached_response(cache_key)
+    if cached is not None:
+        return cached
+
+    res = (
         db.query(models.CrossValidation)
         .filter(models.CrossValidation.asset_id == asset_id)
         .order_by(models.CrossValidation.created_at.desc())
         .all()
     )
+    set_cached_response(cache_key, res)
+    return res
 
 
 # ---------------------------------------------------------------- Section 1 (feature spec)
@@ -131,6 +192,26 @@ def get_satellite_tile(lat: float, lon: float, delta: float = 0.0035, size: int 
     import requests
     from io import BytesIO
     from PIL import Image, ImageEnhance
+
+    tile_key = hashlib.md5(f"{lat:.5f}_{lon:.5f}_{delta:.5f}_{size}_{mode}".encode()).hexdigest()
+    tile_cache_path = os.path.join(TILE_CACHE_DIR, f"tile_{tile_key}.png")
+    if os.path.exists(tile_cache_path):
+        try:
+            with open(tile_cache_path, "rb") as f:
+                content = f.read()
+                if len(content) > 500:
+                    media_type = "image/jpeg" if (mode == "latest" and content.startswith(b"\xff\xd8")) else "image/png"
+                    return Response(content=content, media_type=media_type, headers={"Cache-Control": "public, max-age=2592000, immutable"})
+        except Exception:
+            pass
+
+    def make_cached_tile_response(content: bytes, media_type: str) -> Response:
+        try:
+            with open(tile_cache_path, "wb") as f:
+                f.write(content)
+        except Exception:
+            pass
+        return Response(content=content, media_type=media_type, headers={"Cache-Control": "public, max-age=2592000, immutable"})
 
     if mode in ("t0", "before", "baseline", "s2"):
         import json
@@ -166,7 +247,7 @@ def get_satellite_tile(lat: float, lon: float, delta: float = 0.0035, size: int 
                     img_gee = Image.open(BytesIO(r_gee.content))
                     arr_gee = np.array(img_gee)
                     if arr_gee.mean() > 10:
-                        return Response(content=r_gee.content, media_type="image/png")
+                        return make_cached_tile_response(r_gee.content, "image/png")
         except Exception as gee_err:
             print(f"GEE Sentinel-2 tile proxy notice: {gee_err}")
 
@@ -202,7 +283,7 @@ def get_satellite_tile(lat: float, lon: float, delta: float = 0.0035, size: int 
                         if arr_pc.mean() > 10 and arr_pc.std() > 10:
                             out_pc = BytesIO()
                             img_pc.save(out_pc, format="PNG")
-                            return Response(content=out_pc.getvalue(), media_type="image/png")
+                            return make_cached_tile_response(out_pc.getvalue(), "image/png")
         except Exception as pc_err:
             print(f"Planetary Computer STAC notice: {pc_err}")
 
@@ -221,7 +302,7 @@ def get_satellite_tile(lat: float, lon: float, delta: float = 0.0035, size: int 
                 arr_s2 = np.array(img_s2)
                 # Reject cloudy white wash (mean > 170) or low contrast tiles (std < 28)
                 if 20 < arr_s2.mean() < 170 and arr_s2.std() > 28:
-                    return Response(content=r_s2.content, media_type="image/jpeg")
+                    return make_cached_tile_response(r_s2.content, "image/jpeg")
         except Exception as s2_err:
             print(f"Sentinel-2 ImageServer notice: {s2_err}")
 
@@ -247,9 +328,9 @@ def get_satellite_tile(lat: float, lon: float, delta: float = 0.0035, size: int 
             t0_img = ImageEnhance.Contrast(t0_img).enhance(1.15)
             out = BytesIO()
             t0_img.save(out, format="PNG")
-            return Response(content=out.getvalue(), media_type="image/png")
+            return make_cached_tile_response(out.getvalue(), "image/png")
 
-        return Response(content=img_bytes, media_type="image/png")
+        return make_cached_tile_response(img_bytes, "image/png")
     except Exception as e:
         print(f"ArcGIS primary proxy warning: {e}")
         url2 = (
@@ -260,7 +341,7 @@ def get_satellite_tile(lat: float, lon: float, delta: float = 0.0035, size: int 
         try:
             r2 = requests.get(url2, timeout=12)
             r2.raise_for_status()
-            return Response(content=r2.content, media_type="image/png")
+            return make_cached_tile_response(r2.content, "image/png")
         except Exception:
             raise HTTPException(status_code=502, detail="Satellite tile service unreachable")
 
@@ -270,12 +351,19 @@ def get_temporal_comparison(asset_id: int, buffer_m: int = 600, db: Session = De
     """Real satellite-vs-satellite before/after comparison (never the
     ground photo) - see temporal_comparison.py for the real sensor-
     selection rule and the honest T0 caveat."""
+    cache_key = f"temporal_comp_{asset_id}_{buffer_m}"
+    cached = get_cached_response(cache_key)
+    if cached is not None:
+        return cached
+
     import temporal_comparison
 
     asset = db.query(models.Asset).filter(models.Asset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
-    return temporal_comparison.get_temporal_comparison(asset.latitude, asset.longitude, buffer_m=buffer_m)
+    res = temporal_comparison.get_temporal_comparison(asset.latitude, asset.longitude, buffer_m=buffer_m)
+    set_cached_response(cache_key, res)
+    return res
 
 
 # ---------------------------------------------------------------- Hydrology & Thematic Maps (PS 26015 Steps 2, 3, 4, 5)
@@ -286,11 +374,18 @@ def get_asset_hydrology(asset_id: int, db: Session = Depends(get_db)):
     Computes real D8 flow direction, flow accumulation, Strahler stream ordering,
     sub-watershed boundary delineation, and asset spatial relationship (Steps 2 & 3).
     """
+    cache_key = f"hydrology_{asset_id}"
+    cached = get_cached_response(cache_key)
+    if cached is not None:
+        return cached
+
     import hydrology_engine
     asset = db.query(models.Asset).filter(models.Asset.id == asset_id).first()
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
-    return hydrology_engine.compute_asset_hydrology_relationship(asset.latitude, asset.longitude)
+    res = hydrology_engine.compute_asset_hydrology_relationship(asset.latitude, asset.longitude)
+    set_cached_response(cache_key, res)
+    return res
 
 
 @app.get("/api/hydrology/analyze-point")
@@ -299,8 +394,15 @@ def analyze_point_hydrology(lat: float, lon: float):
     Runs live D8 flow accumulation, stream routing, sub-basin delineation,
     and virtual dam pooling screening for ANY runtime user-dropped (lat, lon) coordinate.
     """
+    cache_key = f"hydro_point_{lat:.4f}_{lon:.4f}"
+    cached = get_cached_response(cache_key)
+    if cached is not None:
+        return cached
+
     import hydrology_engine
-    return hydrology_engine.analyze_point_hydrology(lat, lon)
+    res = hydrology_engine.analyze_point_hydrology(lat, lon)
+    set_cached_response(cache_key, res)
+    return res
 
 
 @app.get("/api/vegetation-map")
@@ -310,23 +412,35 @@ def get_vegetation_map(district: str | None = None, db: Session = Depends(get_db
     Computes real continuous NDVI values across the project area with dynamically
     derived min/max legend bounds — never hardcoded values.
     """
+    cache_key = f"veg_map_{district or 'all'}"
+    cached = get_cached_response(cache_key)
+    if cached is not None:
+        return cached
+
     q = db.query(models.Asset)
     if district:
         q = q.filter(models.Asset.district == district)
     assets = q.all()
 
+    # Optimized single batch query for latest restrend points (eliminates N+1 queries)
+    asset_ids = [a.id for a in assets]
+    latest_pt_map = {}
+    if asset_ids:
+        latest_pts = (
+            db.query(models.RestrendPoint.asset_id, models.RestrendPoint.ndvi_observed)
+            .filter(models.RestrendPoint.asset_id.in_(asset_ids))
+            .order_by(models.RestrendPoint.asset_id, models.RestrendPoint.year.desc(), models.RestrendPoint.month.desc())
+            .all()
+        )
+        for aid, ndvi_obs in latest_pts:
+            if aid not in latest_pt_map and ndvi_obs is not None:
+                latest_pt_map[aid] = ndvi_obs
+
     features = []
     ndvi_values = []
 
     for a in assets:
-        # Pull latest RESTREND NDVI point or derive baseline from satellite metrics
-        latest_pt = (
-            db.query(models.RestrendPoint)
-            .filter(models.RestrendPoint.asset_id == a.id)
-            .order_by(models.RestrendPoint.year.desc(), models.RestrendPoint.month.desc())
-            .first()
-        )
-        ndvi = latest_pt.ndvi_observed if (latest_pt and latest_pt.ndvi_observed is not None) else 0.42
+        ndvi = latest_pt_map.get(a.id, 0.42)
         if a.sentinel_current_lulc == "trees" or a.sentinel_current_lulc == "crops":
             ndvi = max(ndvi, 0.58)
         elif a.sentinel_current_lulc == "bare" or a.sentinel_current_lulc == "built":
@@ -352,7 +466,7 @@ def get_vegetation_map(district: str | None = None, db: Session = Depends(get_db
     min_ndvi = round(min(ndvi_values), 3) if ndvi_values else 0.120
     max_ndvi = round(max(ndvi_values), 3) if ndvi_values else 0.850
 
-    return {
+    res = {
         "type": "FeatureCollection",
         "features": features,
         "legend": {
@@ -369,6 +483,8 @@ def get_vegetation_map(district: str | None = None, db: Session = Depends(get_db
             ]
         }
     }
+    set_cached_response(cache_key, res)
+    return res
 
 
 @app.get("/api/land-use-map")
@@ -377,6 +493,11 @@ def get_land_use_map(district: str | None = None, db: Session = Depends(get_db))
     Explicit Standalone Land Use Map output (Step 4).
     Exposes Bhuvan Baseline vs Sentinel-2 Current LULC classes for side-by-side comparison.
     """
+    cache_key = f"land_use_map_{district or 'all'}"
+    cached = get_cached_response(cache_key)
+    if cached is not None:
+        return cached
+
     q = db.query(models.Asset)
     if district:
         q = q.filter(models.Asset.district == district)
@@ -407,12 +528,14 @@ def get_land_use_map(district: str | None = None, db: Session = Depends(get_db))
             }
         })
 
-    return {
+    res = {
         "type": "FeatureCollection",
         "features": features,
         "class_breakdown": class_counts,
         "total_sites": len(assets)
     }
+    set_cached_response(cache_key, res)
+    return res
 
 
 # ---------------------------------------------------------------- Layer 5
@@ -425,14 +548,11 @@ SPECIALIST_ROLES = {
 
 @app.get("/api/review-queue")
 def review_queue(role: str | None = None, db: Session = Depends(get_db)):
-    """
-    Assets flagged (disagreement / low confidence) needing specialist review.
-    `routed_role` is set once, at classification time, by routing.py's
-    explicit rules (see that module's docstring) - never computed here on
-    the fly, and never more than one role per asset. Assets with no real
-    routing signal (routed_role is NULL) are still surfaced so nothing gets
-    silently dropped from the queue, just without a recommendation.
-    """
+    cache_key = f"review_queue_{role or 'all'}"
+    cached = get_cached_response(cache_key)
+    if cached is not None:
+        return cached
+
     q = db.query(models.Asset).filter(
         (models.Asset.triage_status != "confirmed")
         | (models.Asset.confidence_level == "Low")
@@ -446,6 +566,7 @@ def review_queue(role: str | None = None, db: Session = Depends(get_db)):
         })
     if role:
         routed = [r for r in routed if role in r["recommended_roles"]]
+    set_cached_response(cache_key, routed)
     return routed
 
 
@@ -491,6 +612,7 @@ def submit_review(
         db.commit()
 
     db.refresh(r)
+    clear_api_cache()
     return r
 
 
@@ -513,6 +635,7 @@ def update_photo_coordinates(
     photo.longitude = payload.longitude
     db.commit()
     db.refresh(photo)
+    clear_api_cache()
     return {"id": photo.id, "latitude": photo.latitude, "longitude": photo.longitude}
 
 
