@@ -133,6 +133,9 @@ def get_satellite_tile(lat: float, lon: float, delta: float = 0.0035, size: int 
     from PIL import Image, ImageEnhance
 
     if mode in ("t0", "before", "baseline", "s2"):
+        import json
+        import numpy as np
+
         try:
             import ee
             ee.Initialize()
@@ -160,21 +163,28 @@ def get_satellite_tile(lat: float, lon: float, delta: float = 0.0035, size: int 
                 })
                 r_gee = requests.get(gee_url, timeout=10)
                 if r_gee.status_code == 200:
-                    return Response(content=r_gee.content, media_type="image/png")
+                    img_gee = Image.open(BytesIO(r_gee.content))
+                    arr_gee = np.array(img_gee)
+                    if arr_gee.mean() > 10:
+                        return Response(content=r_gee.content, media_type="image/png")
         except Exception as gee_err:
             print(f"GEE Sentinel-2 tile proxy notice: {gee_err}")
 
-        # Real 2017 Sentinel-2 10m Multispectral Satellite Service (No GEE login required)
+        # Real Sentinel-2 10m Multispectral Satellite Service (No GEE login required)
         try:
+            rule = json.dumps({"rasterFunction": "Natural Color"})
             s2_url = (
                 f"https://sentinel.arcgis.com/arcgis/rest/services/Sentinel2/ImageServer/exportImage?"
                 f"bbox={lon - delta},{lat - delta},{lon + delta},{lat + delta}&"
                 f"bboxSR=4326&imageSR=4326&size={size},{size}&"
-                f"time=1483228800000,1514764799000&format=jpg&f=image"
+                f"renderingRule={rule}&format=jpg&f=image"
             )
             r_s2 = requests.get(s2_url, timeout=10)
             if r_s2.status_code == 200 and len(r_s2.content) > 1000:
-                return Response(content=r_s2.content, media_type="image/jpeg")
+                img_s2 = Image.open(BytesIO(r_s2.content))
+                arr_s2 = np.array(img_s2)
+                if arr_s2.mean() > 10:
+                    return Response(content=r_s2.content, media_type="image/jpeg")
         except Exception as s2_err:
             print(f"Sentinel-2 ImageServer notice: {s2_err}")
 
@@ -191,13 +201,13 @@ def get_satellite_tile(lat: float, lon: float, delta: float = 0.0035, size: int 
         img_bytes = r.content
 
         if mode in ("t0", "before", "baseline", "s2"):
-            # 10m Sentinel-2 Spatial Grid Quantization & NIR Reflectance Simulation
+            # 10m Sentinel-2 Spatial Grid Quantization Baseline Simulation
             img = Image.open(BytesIO(img_bytes)).convert("RGB")
             meters_span = max(10, delta * 2 * 111320.0)
             pixels_10m = max(16, int(round(meters_span / 10.0)))
             grid_img = img.resize((pixels_10m, pixels_10m), resample=Image.Resampling.BOX)
             t0_img = grid_img.resize((size, size), resample=Image.Resampling.NEAREST)
-            t0_img = ImageEnhance.Contrast(t0_img).enhance(1.1)
+            t0_img = ImageEnhance.Contrast(t0_img).enhance(1.15)
             out = BytesIO()
             t0_img.save(out, format="PNG")
             return Response(content=out.getvalue(), media_type="image/png")
