@@ -136,8 +136,7 @@ def get_satellite_tile(lat: float, lon: float, delta: float = 0.0035, size: int 
         try:
             import ee
             ee.Initialize()
-            buffer_m = max(50.0, delta * 111320.0)
-            geom = ee.Geometry.Point([lon, lat]).buffer(buffer_m).bounds()
+            geom = ee.Geometry.BBox(lon - delta, lat - delta, lon + delta, lat + delta)
             s2_col = (
                 ee.ImageCollection("COPERNICUS/S2_SR_HARMONIZED")
                 .filterBounds(geom)
@@ -147,8 +146,11 @@ def get_satellite_tile(lat: float, lon: float, delta: float = 0.0035, size: int 
             )
             s2_img = s2_col.first()
             if s2_img is not None and s2_col.size().getInfo() > 0:
-                rgb = s2_img.select(["B4", "B3", "B2"]).divide(10000)
-                stretched = rgb.subtract(0.02).divide(0.25).clamp(0, 1).pow(1 / 1.3)
+                rgb = s2_img.select(["B4", "B3", "B2"]).resample("bicubic").divide(10000)
+                laplacian = ee.Kernel.laplacian8(1)
+                edges = rgb.convolve(laplacian)
+                sharpened = rgb.subtract(edges.multiply(0.25))
+                stretched = sharpened.subtract(0.02).divide(0.25).clamp(0, 1).pow(1 / 1.3)
                 gee_url = stretched.getThumbURL({
                     "region": geom,
                     "dimensions": size,
@@ -175,19 +177,14 @@ def get_satellite_tile(lat: float, lon: float, delta: float = 0.0035, size: int 
         img_bytes = r.content
 
         if mode in ("t0", "before", "baseline", "s2"):
-            # Authentic 10m Sentinel-2 Spatial Resolution Grid Resampling
+            # Smooth continuous bicubic spatial resampling & spectral reflectance adjustment
             img = Image.open(BytesIO(img_bytes)).convert("RGB")
-            meters_span = max(10, delta * 2 * 111320.0)
-            pixels_10m = max(16, int(round(meters_span / 10.0)))
-            grid_img = img.resize((pixels_10m, pixels_10m), resample=Image.Resampling.BOX)
-            t0_img = grid_img.resize((size, size), resample=Image.Resampling.NEAREST)
-            
-            # Subtle spectral reflectance adjustment for baseline simulation
-            r_chan, g_chan, b_chan = t0_img.split()
+            r_chan, g_chan, b_chan = img.split()
             nir_r = ImageEnhance.Contrast(g_chan).enhance(1.15)
             nir_g = ImageEnhance.Contrast(r_chan).enhance(0.85)
             nir_b = ImageEnhance.Contrast(b_chan).enhance(0.75)
             t0_img = Image.merge("RGB", (nir_r, nir_g, nir_b))
+            t0_img = ImageEnhance.Sharpness(t0_img).enhance(1.4)
             out = BytesIO()
             t0_img.save(out, format="PNG")
             return Response(content=out.getvalue(), media_type="image/png")

@@ -68,7 +68,7 @@ def get_temporal_comparison(lat, lon, buffer_m=DEFAULT_BUFFER_M):
     sides = {}
     try:
         ee.Initialize()
-        geom = ee.Geometry.Point([lon, lat]).buffer(buffer_m).bounds()
+        geom = ee.Geometry.BBox(lon - delta_deg, lat - delta_deg, lon + delta_deg, lat + delta_deg)
         now = datetime.datetime.now(datetime.timezone.utc)
 
         for side, (start, end) in [
