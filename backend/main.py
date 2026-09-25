@@ -31,7 +31,7 @@ except Exception as _e:
 finally:
     _db_init.close()
 
-app = FastAPI(title="Satmaps Geospatial Monitoring API")
+app = FastAPI(title="Satmaps Geospatial Monitoring API - v2.1")
 
 # --- Flexible CORS: allow Vercel frontends, localhost, and preview domains ---
 app.add_middleware(
