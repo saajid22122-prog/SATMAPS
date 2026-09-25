@@ -170,7 +170,43 @@ def get_satellite_tile(lat: float, lon: float, delta: float = 0.0035, size: int 
         except Exception as gee_err:
             print(f"GEE Sentinel-2 tile proxy notice: {gee_err}")
 
-        # Real Sentinel-2 10m Multispectral Satellite Service (No GEE login required)
+        # Real Historical Sentinel-2 Satellite Pass via Microsoft Planetary Computer STAC API (No login required)
+        try:
+            import math
+            stac_url = "https://planetarycomputer.microsoft.com/api/stac/v1/search"
+            stac_req = {
+                "collections": ["sentinel-2-l2a"],
+                "bbox": [lon - delta, lat - delta, lon + delta, lat + delta],
+                "datetime": "2017-01-01T00:00:00Z/2019-12-31T23:59:59Z",
+                "query": {"eo:cloud_cover": {"lt": 20}},
+                "limit": 1,
+            }
+            r_stac = requests.post(stac_url, json=stac_req, timeout=6)
+            if r_stac.status_code == 200:
+                features = r_stac.json().get("features", [])
+                if features:
+                    item_id = features[0]["id"]
+                    zoom = 15
+                    lat_rad = math.radians(lat)
+                    n = 2.0 ** zoom
+                    xtile = int((lon + 180.0) / 360.0 * n)
+                    ytile = int((1.0 - math.log(math.tan(lat_rad) + (1 / math.cos(lat_rad))) / math.pi) / 2.0 * n)
+                    pc_tile_url = (
+                        f"https://planetarycomputer.microsoft.com/api/data/v1/item/tiles/WebMercatorQuad/{zoom}/{xtile}/{ytile}@1x?"
+                        f"collection=sentinel-2-l2a&item={item_id}&assets=visual&asset_bidx=visual%7C1,2,3&nodata=0&format=png"
+                    )
+                    r_pc = requests.get(pc_tile_url, timeout=8)
+                    if r_pc.status_code == 200 and len(r_pc.content) > 1000:
+                        img_pc = Image.open(BytesIO(r_pc.content)).convert("RGB").resize((size, size))
+                        arr_pc = np.array(img_pc)
+                        if arr_pc.mean() > 10 and arr_pc.std() > 10:
+                            out_pc = BytesIO()
+                            img_pc.save(out_pc, format="PNG")
+                            return Response(content=out_pc.getvalue(), media_type="image/png")
+        except Exception as pc_err:
+            print(f"Planetary Computer STAC notice: {pc_err}")
+
+        # Real Sentinel-2 10m Multispectral Satellite Service via Esri
         try:
             rule = json.dumps({"rasterFunction": "Natural Color"})
             s2_url = (
