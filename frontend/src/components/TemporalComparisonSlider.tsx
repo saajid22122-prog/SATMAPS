@@ -74,13 +74,16 @@ export default function TemporalComparisonSlider({
 
   const activeZoomConfig = ZOOM_BUFFER_MAP[zoomLevel] ?? ZOOM_BUFFER_MAP.close;
   const delta = activeZoomConfig.delta;
-  const directHighResUrl = `${API_BASE}/api/satellite-tile?lat=${lat}&lon=${lon}&delta=${delta}&size=1024`;
+  const directT0Url = `${API_BASE}/api/satellite-tile?lat=${lat}&lon=${lon}&delta=${delta}&size=1024&mode=t0`;
+  const directHighResUrl = `${API_BASE}/api/satellite-tile?lat=${lat}&lon=${lon}&delta=${delta}&size=1024&mode=latest`;
 
   const loadData = useCallback(() => {
     setData(null);
     setError(null);
     setBeforeLoaded(false);
     setAfterLoaded(false);
+    setLeftFallback(null);
+    setRightFallback(null);
     setZoom(1);
     setPan({ x: 0, y: 0 });
     setPct(50);
@@ -107,7 +110,7 @@ export default function TemporalComparisonSlider({
             date: "Recent High-Res Pass",
             thumb_url: `/api/satellite-tile?lat=${lat}&lon=${lon}&delta=${delta}&size=1024&mode=latest`,
           },
-          highres_ortho_url: `/api/satellite-tile?lat=${lat}&lon=${lon}&delta=${delta}&size=1024`,
+          highres_ortho_url: `/api/satellite-tile?lat=${lat}&lon=${lon}&delta=${delta}&size=1024&mode=latest`,
           buffer_m: bufferM,
           sensor_mismatch: true,
           months_apart: 108,
@@ -204,31 +207,31 @@ export default function TemporalComparisonSlider({
 
   const { before, after } = data;
 
-  const resolveUrl = (url: string | null | undefined): string => {
-    if (!url) return directHighResUrl;
+  const resolveUrl = (url: string | null | undefined, isT0 = false): string => {
+    if (!url) return isT0 ? directT0Url : directHighResUrl;
     if (url.startsWith("/")) return `${API_BASE}${url}`;
     return url;
   };
 
   // Determine active Left (Before) and Right (After) image URLs with fallbacks
-  let leftSrc = resolveUrl(leftFallback ?? before?.thumb_url);
+  let leftSrc = resolveUrl(leftFallback ?? before?.thumb_url, true);
   let leftLabel = `T0 · ${before?.sensor || "Sentinel-2 Baseline"} (${before?.resolution_m || 10}m · ${before?.date || "2017-01-01"})`;
   
-  let rightSrc = resolveUrl(rightFallback ?? after?.thumb_url ?? directHighResUrl);
+  let rightSrc = resolveUrl(rightFallback ?? after?.thumb_url ?? directHighResUrl, false);
   let rightLabel = `Latest · ${after?.sensor || "ArcGIS High-Res"} (${after?.resolution_m || 1}m · ${after?.date || "Recent"})`;
 
   if (sliderMode === "satellite_vs_highres") {
-    leftSrc = resolveUrl(leftFallback ?? before?.thumb_url);
+    leftSrc = resolveUrl(leftFallback ?? before?.thumb_url, true);
     leftLabel = `T0 Baseline · ${before?.sensor || "Sentinel-2"} (${before?.resolution_m || 10}m)`;
-    rightSrc = resolveUrl(rightFallback ?? directHighResUrl);
+    rightSrc = resolveUrl(rightFallback ?? directHighResUrl, false);
     rightLabel = "Current · High-Res Ortho (~1m Crystal Clear)";
   }
 
-  // Guarantee mode=t0 for Left (Before baseline) and mode=latest for Right (After current)
-  if (leftSrc && !leftSrc.includes("mode=")) {
+  // Guarantee mode=t0 for Left (Before baseline) and mode=latest for Right (After current) when proxying
+  if (leftSrc && leftSrc.includes("/api/satellite-tile") && !leftSrc.includes("mode=")) {
     leftSrc += (leftSrc.includes("?") ? "&" : "?") + "mode=t0";
   }
-  if (rightSrc && !rightSrc.includes("mode=")) {
+  if (rightSrc && rightSrc.includes("/api/satellite-tile") && !rightSrc.includes("mode=")) {
     rightSrc += (rightSrc.includes("?") ? "&" : "?") + "mode=latest";
   }
 
@@ -464,8 +467,8 @@ export default function TemporalComparisonSlider({
               draggable={false}
               onLoad={() => setBeforeLoaded(true)}
               onError={() => {
-                if (leftSrc !== directHighResUrl) {
-                  setLeftFallback(directHighResUrl);
+                if (leftSrc !== directT0Url) {
+                  setLeftFallback(directT0Url);
                 }
                 setBeforeLoaded(true);
               }}

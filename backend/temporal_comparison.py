@@ -61,6 +61,7 @@ def get_temporal_comparison(lat, lon, buffer_m=DEFAULT_BUFFER_M):
     Returns real before/after satellite thumbnail URLs + real sensor/date
     metadata, with edge sharpening and high-contrast reflectance.
     """
+    delta_deg = buffer_m / 111320.0
     esri_url_t0 = f"/api/satellite-tile?lat={lat}&lon={lon}&delta={delta_deg:.6f}&size=1024&mode=t0"
     esri_url_latest = f"/api/satellite-tile?lat={lat}&lon={lon}&delta={delta_deg:.6f}&size=1024&mode=latest"
 
@@ -140,7 +141,7 @@ def get_temporal_comparison(lat, lon, buffer_m=DEFAULT_BUFFER_M):
     return {
         "before": sides.get("before"),
         "after": sides.get("after"),
-        "highres_ortho_url": esri_url,
+        "highres_ortho_url": esri_url_latest,
         "buffer_m": buffer_m,
         "sensor_mismatch": sensor_mismatch,
         "months_apart": months_apart,
