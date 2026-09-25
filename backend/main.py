@@ -164,6 +164,20 @@ def get_satellite_tile(lat: float, lon: float, delta: float = 0.0035, size: int 
         except Exception as gee_err:
             print(f"GEE Sentinel-2 tile proxy notice: {gee_err}")
 
+        # Real 2017 Sentinel-2 10m Multispectral Satellite Service (No GEE login required)
+        try:
+            s2_url = (
+                f"https://sentinel.arcgis.com/arcgis/rest/services/Sentinel2/ImageServer/exportImage?"
+                f"bbox={lon - delta},{lat - delta},{lon + delta},{lat + delta}&"
+                f"bboxSR=4326&imageSR=4326&size={size},{size}&"
+                f"time=1483228800000,1514764799000&format=jpg&f=image"
+            )
+            r_s2 = requests.get(s2_url, timeout=10)
+            if r_s2.status_code == 200 and len(r_s2.content) > 1000:
+                return Response(content=r_s2.content, media_type="image/jpeg")
+        except Exception as s2_err:
+            print(f"Sentinel-2 ImageServer notice: {s2_err}")
+
     # Primary High-Res Ortho Proxy (ArcGIS World Imagery ~1m)
     export_size = min(size, 800)
     url = (
