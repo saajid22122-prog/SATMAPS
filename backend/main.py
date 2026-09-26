@@ -91,9 +91,15 @@ def root():
     }
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health_check():
-    return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
+    import json
+    payload = json.dumps({"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()})
+    return Response(
+        content=payload,
+        media_type="application/json",
+        headers={"Content-Length": str(len(payload))}
+    )
 
 
 
