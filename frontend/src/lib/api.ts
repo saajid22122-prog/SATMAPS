@@ -10,7 +10,7 @@ import type {
 } from "./types";
 import { supabase } from "./supabase";
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
+export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE || "https://satmaps-backend.onrender.com").replace(/\/$/, "");
 export const MEDIA_BASE = `${API_BASE}/media`;
 
 // Client-side in-memory API response cache & request deduplication

@@ -44,7 +44,8 @@ hidden.
 ```
 SUPABASE_URL=https://gihuorjpaiirldxuexli.supabase.co
 DATABASE_URL=<real Postgres connection string - see "What I still need" below>
-ALLOWED_ORIGINS=<real production frontend URL(s), comma-separated - never a wildcard>
+ALLOWED_ORIGINS=https://satmaps-two.vercel.app
+FRONTEND_URL=https://satmaps-two.vercel.app
 ```
 (`SUPABASE_JWT_SECRET` is NOT needed - this project uses real ES256/JWKS
 verification, fetched live from `SUPABASE_URL`, not a static secret.)

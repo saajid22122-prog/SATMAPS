@@ -676,7 +676,8 @@ def dispatch_simulate(
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    verification_link = f"http://localhost:3000/assets/{asset.id}"
+    frontend_base_url = os.environ.get("FRONTEND_URL", "https://satmaps-two.vercel.app").rstrip("/")
+    verification_link = f"{frontend_base_url}/assets/{asset.id}"
     locality = asset.admin_locality or asset.district
 
     payload_en = (
